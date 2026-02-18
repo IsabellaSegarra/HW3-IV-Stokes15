@@ -25,7 +25,7 @@ Keep your work readable: Use clear headings and label plot elements thoughtfully
 
 Submit both your rendered output and the Quarto (`.qmd`) file.
 
-**Assignment submission (YOUR NAME)**: ______________________________________
+**Assignment submission (YOUR NAME)**: Isabella Segarra
 
 
 ------------------------------------------------------------------------
@@ -65,7 +65,9 @@ library(AER)      # for ivreg (2SLS estimation)
 
 ```{r}
 
-matched_data <- 
+matched_data <- read_csv(here("data", "matched_data_subset.csv")) %>% 
+    # Recode column as factor 
+    mutate(precinct_id = as_factor(precinct_id))
 
 ```
 
@@ -77,7 +79,7 @@ Intuition for Using an Instrument:
 
 **Question 1:** After matching on observables, why might we still need to utilize an instrumental variable approach to identify the causal effect of turbine proposals on vote share? In other words, what potential issues remain that an IV method can help address in this context? Use specific examples from the study to illustrate threats to a causal interpretation, then explain how an IV approach is designed to mitigate those threats.
 
-*Response:* _________________________
+*Response:* Although the distributions of matched covariates is similar, the  instrumental variable can influence the location of turbines (X), limiting the direct causal relationship between wind turbines and vote share. This is due to the fact that wind turbines were not randomly placed, but placed in regions with high wind power and wind power affects vote share only through turbine placement. Some potential issues mentioned in this study were that some communities might be more inclined to have wind turbines if they were open to climate policy or communities might oppose them if they had less minority populations, and by including wind power, the author was able to eliminate these differences in communities. 
 
 ------------------------------------------------------------------------
 
@@ -92,7 +94,10 @@ b. Include the control variables used in Stokes (2015) for both stages: Distance
 c. After running the first stage, report the F-statistic for the instrument.
 
 ```{r}
-first_stage <- lm()
+first_stage <- lm(proposed_turbine_3km ~ log_wind_power + 
+                      mindistlake_sq +
+                      long_sq:lat_sq +
+                      district_id, data = matched_data)
 
 export_summs(first_stage, digits = 3,
              model.names = c("First stage: Prpoposed Turbine 3km"),
@@ -104,13 +109,17 @@ export_summs(first_stage, digits = 3,
 
 Check instrument strength (F-statistic)
 ```{r}
+# Extract the F-statistic for instrument strength
+first_stage_summary <- summary(first_stage)
 
+first_stage_summary$fstatistic[1]
 
 ```
 
 **Question 2A:** Based on the instrument relevance test reported in the study, would you conclude the instrument is strong enough to be credible? Explain what a weak instrument would mean in this setting: Specifically, what would it suggest about compliance with Ontario’s Green Energy Act policy? 
 
-*Response:* _________________________ 
+*Response:* The instrument is ~81.1 which indicates a strong, relevant instrument for this study. This means that windpower has a strong relationship on proposed turbines which makes sense since turbines are placed in regions with good wind power. If this instrument were weak, then it would suggest that proposed turbines were placed in regions based on external factors such as political connections and not wind power. 
+
 
 ------------------------------------------------------------------------
 
@@ -128,9 +137,8 @@ e. Fill in the code for these steps below to obtain the second-stage regression 
 
 Save predicted values $\hat{X}_i$ from first stage 
 ```{r}
-
-matched_data$proposed_turbine_3km_HAT <- 
-
+# Generate predicted values 
+matched_data$proposed_turbine_3km_HAT <- predict(first_stage)
 ```
 
 #### Estimate the second-stage regression 
@@ -138,7 +146,10 @@ matched_data$proposed_turbine_3km_HAT <-
 $$LiberalVoteShare_i = \beta_0 + \beta_1 \widehat{ProposedTurbine}_i + ControlVariables... +  \epsilon_i$$
 
 ```{r}
-second_stage <- lm()
+second_stage <- lm(change_liberal ~ proposed_turbine_3km_HAT + mindistlake_sq +
+                      long_sq:lat_sq +
+                      district_id, data = matched_data)
+
 
 export_summs(second_stage, digits = 3, 
              model.names = c("Second stage: Change in Liberal Vote Share"),
@@ -149,9 +160,12 @@ export_summs(second_stage, digits = 3,
 
 **Question 2B:** Imagine you are explaining your 2SLS findings to a policymaker in Ontario. What does the estimated coefficient on `proposed_turbine_3km_HAT` imply about the electoral impact of a local wind turbine proposal (within 3 km) on liberal vote share?
 
+Proposed wind turbines within 3km of cities reduced liberal vote share by 19 percentage point. Precincts exposed to proposed turbines shifted away from the Liberal Party after they implemented the Green Energy Act. This effect is for precincts that got turbines because of strong wind power, not other external political factors. 
+
 **Question 2C:** Explain what it means that IV identifies a LATE in the context of the wind-turbine voting study. What specific subset of observations does the second-stage 2SLS estimate apply to, and what does it imply about interpretation and generalizability? 
 
-*Response:* _________________________ 
+*Response:* IV identities the LATE or local average treatment effect for those where wind power influenced turbine placement. The second stage 2SLS applies to only precincts where strong wind power was the deciding factor for placing wind turbines. This interpretation only applies to that subset of precincts, not those that would get wind turbines for other factors such as politically favorable locations. 
+
 
 ------------------------------------------------------------------------
 
@@ -161,7 +175,11 @@ export_summs(second_stage, digits = 3,
 
 **Question 3:** List the four key assumptions required for the IV strategy (2SLS) to identify a causal effect, and briefly explain what each one means in the context of this study. (Hint: think about what conditions a valid instrument must satisfy (relevance, exclusion,...)
 
-*Response:* _________________________ 
+*Response:* Consider that Z is wind power potential and D is turbine placement and Y is vote share. This case study uses wind power as its instrumental variable. This variable satisfies the following four key assumptions: 
+1) Exclusion restriction: Wind power (Z) solely influences vote share (Y) through turbine placement (D)
+2) Relevance: As shown in the `first_stage` f-statistic, windpower (Z) strongly influences turbine placement, this is known as relevance. 
+3) Ignorability (random first stage): Wind power is a random process that is determined through physical processes, not external political factors. 
+4) Monotonicity: As shown with the `second_stage` model, precincts that had strong wind power strongly influenced proposed wind turbines. This satisfies the montonomicity assumption meaning that there were no precincts less likely to get turbines when windpower is higher. 
 
 ------------------------------------------------------------------------
 
@@ -183,19 +201,28 @@ Syntax for specifying 2SLS using `ivreg()`:
 
 ```{r}
   
-fit_2sls <- ivreg()
+fit_2sls <- ivreg(change_liberal ~ proposed_turbine_3km +
+                      mindistlake_sq +
+                      long_sq:lat_sq +
+                      district_id |
+                      log_wind_power +
+                      mindistlake_sq +
+                      long_sq:lat_sq +
+                      district_id, 
+                  data = matched_data
+                      )
 
 export_summs(fit_2sls, digits = 3,
              model.names = c("Change in Liberal Vote Share"),
-             #coefs = c("(Intercept)", "proposed_turbine_3km")
+             coefs = c("(Intercept)", "proposed_turbine_3km")
              ) 
 ```
-
 #### Robustness checking strategies utilized in Stokes, 2015
 
 **Question 4:** Choose two *robustness checks* from the paper that the authors use to increase confidence in their causal identification strategy. For each one, summarize the logic and findings from the robustness check in your own words:
 
-*Response:* _________________________ 
+*Response:* 
+The author uses the instrumental variable as a robustness check to address selection bias. The IV is used in order to address endogeneity concerns or to address the fact that turbine placement is not random, but also determined by windpower which in itself, is separate from political factors. If the regression analysis shows that there is a relationship between windpower and turbine placement, then there is not external bias. Another robustness check the author utilized was within the proximity to wind turbines. The author looked at different distances to wind turbines to test whether the effect was proximity-based. This led them to use 3km as the preferred buffer. 
 
 ------------------------------------------------------------------------
 
